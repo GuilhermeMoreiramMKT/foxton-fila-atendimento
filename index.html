@@ -1,0 +1,51 @@
+<!doctype html><html lang="pt-BR"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Foxton | Fila de atendimento</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#f4f2ed;color:#242620;font:16px system-ui}header{background:#242923;color:#fff;padding:24px;letter-spacing:.24em;font-weight:700}main{max-width:560px;margin:auto;padding:24px}h1{font-size:34px;letter-spacing:-.05em;margin:12px 0}h2{font-size:19px}small{color:#535c51}main>section{background:#fff;border-radius:16px;padding:20px;margin:18px 0}.current{background:#dce6d4;color:#263526}button,input{font:inherit;padding:12px;border-radius:8px}button{background:#293e2b;color:white;border:0;cursor:pointer}button:disabled{opacity:.5}input{min-width:0;width:100%;border:1px solid #aaa}form{display:grid;gap:8px}.row{padding:12px 0;border-bottom:1px solid #ddd}#mark{width:100%}#error{color:#902e26}
+</style><header>FOXTON</header><main>
+<small id="status" role="status">Conectando…</small><h1>Fila de atendimento</h1><p id="error" role="alert"></p>
+<form id="join"><label for="name">Seu nome</label><input id="name" maxlength="40" required autocomplete="given-name"><button>Entrar na fila</button></form>
+<section class="current"><small>VEZ DE ATENDER</small><h2 id="current">Fila vazia</h2><button id="mark" disabled>Marcar atendimento concluído</button></section>
+<section><h2>Ordem da fila</h2><ol id="queue"></ol><button id="leave" hidden>Sair da fila</button></section>
+</main><script>
+const $ = id => document.getElementById(id);
+let token = localStorage.getItem('foxton-token');
+if (!token) { token = crypto.randomUUID(); localStorage.setItem('foxton-token', token); }
+let state = { people: [], version: 0 }, connected = false, busy = false;
+function render(){
+  const {people} = state, member = people.find(p=>p.mine), first = people[0];
+  $('status').textContent = connected ? (member ? 'Conectado · '+member.name : 'Conectado') : 'Reconectando…';
+  $('current').textContent = first?.name || 'Fila vazia';
+  $('join').style.display = member ? 'none' : '';
+  $('join').querySelector('button').disabled = !connected || busy;
+  $('mark').disabled = !connected || busy || !first?.mine;
+  $('leave').hidden = !member;
+  $('leave').disabled = busy || !connected;
+  $('queue').replaceChildren(...people.map(p=>{
+    const li=document.createElement('li'); li.className='row';
+    li.textContent=p.name+(p.mine?' (você)':''); return li;
+  }));
+}
+async function refresh(){
+  try {
+    const r=await fetch('/api/queue',{headers:{Authorization:'Bearer '+token}});
+    if(!r.ok) throw Error();
+    const next=await r.json();
+    if(next.version>=state.version) state=next;
+    connected=true;
+  } catch { connected=false; }
+  render();
+}
+async function change(action,name){
+  if (busy || !connected) return;
+  busy=true; $('error').textContent=''; render();
+  try {
+    const r=await fetch('/api/queue',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+token},body:JSON.stringify({action,name,version:state.version})});
+    if(!r.ok) throw Error((await r.json()).error);
+  } catch(e){ $('error').textContent=e.message || 'Não foi possível registrar a alteração.'; }
+  await refresh(); busy=false; render();
+}
+$('join').onsubmit=e=>{e.preventDefault();change('join',$('name').value)};
+$('mark').onclick=()=>change('complete');
+$('leave').onclick=()=>change('leave');
+refresh();setInterval(refresh,1000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)refresh()});
+</script></html>
